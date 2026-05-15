@@ -1,0 +1,67 @@
+{
+    // PATH used only for finding environment managers and bootstrap helpers used by .envrc files.
+    // Sublime's inherited PATH is intentionally ignored for deterministic resolution.
+    "bootstrap_path_dirs": [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "~/.local/bin",
+        "~/bin",
+        "~/.nix-profile/bin",
+        "/nix/var/nix/profiles/default/bin",
+        "~/.orbstack/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin"
+    ],
+
+    // Variables copied from Sublime's process into the clean environment used to evaluate direnv.
+    "passthrough_vars": [
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "TMPDIR",
+        "TMP",
+        "TEMP",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "SSH_AUTH_SOCK"
+    ],
+
+    // Optional absolute path or command name for direnv. Empty means discover via bootstrap_path_dirs.
+    "direnv_command": "",
+
+    // Seconds to allow direnv export json to run.
+    "direnv_timeout": 30,
+
+    // Tool names shown by Project Environment: Show Tool Paths.
+    "default_tools": [
+        "shellcheck",
+        "uv",
+        "python3",
+        "node",
+        "go"
+    ],
+
+    // Variables shown by Project Environment: Show Effective Environment.
+    "interesting_vars": [
+        "PATH",
+        "FLOX_ENV",
+        "FLOX_ENV_CACHE",
+        "DIRENV_DIR",
+        "DIRENV_FILE",
+        "VIRTUAL_ENV",
+        "PYENV_ROOT",
+        "RBENV_ROOT",
+        "GOROOT",
+        "GOPATH",
+        "GOBIN"
+    ],
+
+    // Maximum panel body size for rendered environment output.
+    "max_output_bytes": 524288
+}

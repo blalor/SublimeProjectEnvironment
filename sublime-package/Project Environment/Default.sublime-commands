@@ -1,0 +1,10 @@
+[
+    {
+        "caption": "Project Environment: Show Effective Environment",
+        "command": "project_environment_show"
+    },
+    {
+        "caption": "Project Environment: Show Tool Paths",
+        "command": "project_environment_show_tools"
+    }
+]
