@@ -53,4 +53,6 @@ Useful functions:
 
 ## Current scope
 
-This first version provides deterministic resolution and inspection. LSP/SublimeLinter adapters can be layered on top of this package without coupling that functionality to the agent bridge.
+This first version provides deterministic resolution and inspection. LSP/SublimeLinter adapters can be layered on top of this package without coupling that functionality to agent tooling.
+
+See [`docs/lsp-integration.md`](docs/lsp-integration.md) for findings on Sublime LSP startup ordering, available hooks, and integration options.
