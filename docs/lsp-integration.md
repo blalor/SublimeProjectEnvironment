@@ -33,7 +33,7 @@ This avoids launch-history and cross-window contamination. During experimentatio
 
 ## What this does not solve by itself
 
-The package does not yet make LSP/SublimeLinter/build systems use the resolved environment. It only exposes the correct environment and tool paths.
+The package now includes a SublimeLinter adapter. It does not yet make LSP/build systems use the resolved environment. The core resolver exposes the correct environment and tool paths for those future adapters.
 
 To solve subprocess startup races, integration must happen at the process-launch boundary: immediately before the target package calls `subprocess.Popen` or equivalent.
 
@@ -176,9 +176,8 @@ If used, the adapter should be conservative:
 Keep layers separate:
 
 ```text
-Project Environment                 # deterministic env resolver + public API
+Project Environment                 # deterministic env resolver + public API + SublimeLinter adapter
 Project Environment - LSP Adapter   # optional LSP integration
-Project Environment - Linter Adapter# optional SublimeLinter integration
 project-environment-exec            # optional command-line wrapper
 ```
 

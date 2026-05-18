@@ -40,6 +40,8 @@
 
     // Tool names shown by Project Environment: Show Tool Paths.
     "default_tools": [
+        "actionlint",
+        "yamllint",
         "shellcheck",
         "uv",
         "python3",
@@ -61,6 +63,14 @@
         "GOPATH",
         "GOBIN"
     ],
+
+    // Short cache for repeated environment lookups during a single lint pass.
+    "cache_seconds": 5,
+
+    // Patch SublimeLinter's subprocess launch boundary so linters use the
+    // Project Environment for the relevant view instead of Sublime's launch env.
+    "sublime_linter_integration": true,
+    "sublime_linter_patch_attempts": 30,
 
     // Maximum panel body size for rendered environment output.
     "max_output_bytes": 524288

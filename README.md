@@ -2,7 +2,7 @@
 
 General-purpose deterministic execution environment resolution for Sublime Text.
 
-This package is intentionally separate from Sublime Agent Bridge. The bridge is only for interactive agent work; this package owns reusable environment discovery for Sublime plugins, LSP servers, linters, build systems, and commands.
+This package owns reusable environment discovery for Sublime plugins, LSP servers, linters, build systems, and commands.
 
 ## What it does
 
@@ -51,8 +51,18 @@ Useful functions:
 - `resolve_for_view(view, tools=None, include_env=True, interesting_vars=None)`
 - `which_for_window(window, tools, path=None)`
 
+## SublimeLinter integration
+
+By default, Project Environment patches SublimeLinter at the subprocess launch boundary. Linters resolve executables with the per-view Project Environment `PATH` and run with the resolved per-view environment. This is what makes tools supplied by `direnv`/Flox, such as `actionlint`, `yamllint`, and `shellcheck`, available even when Sublime Text was launched from the Dock.
+
+Set `"sublime_linter_integration": false` to disable this adapter.
+
 ## Current scope
 
-This first version provides deterministic resolution and inspection. LSP/SublimeLinter adapters can be layered on top of this package without coupling that functionality to agent tooling.
+This version provides deterministic resolution and inspection plus a SublimeLinter adapter. LSP/build-system adapters can be layered on top of this package without coupling that functionality to agent tooling.
+
+## Future considerations
+
+- Consider an opt-in way to derive the initial bootstrap `PATH` from the user's shell dotfiles/login shell, while preserving deterministic behavior and avoiding inherited Sublime launch-environment contamination.
 
 See [`docs/lsp-integration.md`](docs/lsp-integration.md) for findings on Sublime LSP startup ordering, available hooks, and integration options.

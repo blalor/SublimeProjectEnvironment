@@ -4,7 +4,8 @@ import shutil
 import subprocess
 import threading
 import traceback
-from collections import OrderedDict
+import time
+from collections import ChainMap, OrderedDict
 
 import sublime
 import sublime_plugin
@@ -15,6 +16,8 @@ SETTINGS = "Project Environment.sublime-settings"
 PANEL = "project_environment"
 
 _LOCK = threading.RLock()
+_ENV_CACHE_LOCK = threading.RLock()
+_ENV_CACHE = {}
 
 
 def settings():
@@ -177,7 +180,10 @@ def resolve_for_window(window, path=None, tools=None, include_env=True, interest
 
         result["path"] = _split_path(env.get("PATH", ""))
         result["exportedKeys"] = sorted(exported.keys())
-        interesting = interesting_vars or settings().get("interesting_vars", []) or []
+        if interesting_vars is None:
+            interesting = settings().get("interesting_vars", []) or []
+        else:
+            interesting = interesting_vars
         result["vars"] = {key: env[key] for key in interesting if key in env}
         if tools:
             result["tools"] = {tool: shutil.which(tool, path=env.get("PATH")) for tool in tools}
@@ -190,6 +196,43 @@ def resolve_for_view(view, tools=None, include_env=True, interesting_vars=None):
     window = view.window() if view else sublime.active_window()
     path = view.file_name() if view else None
     return resolve_for_window(window, path=path, tools=tools, include_env=include_env, interesting_vars=interesting_vars)
+
+
+def _cache_key_for_view(view):
+    window = view.window() if view else sublime.active_window()
+    folders = tuple(window.folders()) if window else ()
+    return (
+        window.id() if window else None,
+        view.file_name() if view else None,
+        folders,
+    )
+
+
+def resolve_for_view_cached(view, tools=None, include_env=True, interesting_vars=None):
+    """Resolve a view environment with a short TTL cache.
+
+    SublimeLinter can ask for executable paths and environment multiple times
+    during a single lint pass.  A short cache avoids re-running direnv for each
+    method while still picking up environment changes quickly.
+    """
+    ttl = float(settings().get("cache_seconds", 5))
+    interesting_key = None if interesting_vars is None else tuple(interesting_vars)
+    key = (_cache_key_for_view(view), tuple(tools or ()), bool(include_env), interesting_key)
+    now = time.monotonic()
+    with _ENV_CACHE_LOCK:
+        cached = _ENV_CACHE.get(key)
+        if cached and now - cached[0] <= ttl:
+            return cached[1]
+
+    resolved = resolve_for_view(view, tools=tools, include_env=include_env, interesting_vars=interesting_vars)
+    with _ENV_CACHE_LOCK:
+        _ENV_CACHE[key] = (now, resolved)
+    return resolved
+
+
+def clear_cache():
+    with _ENV_CACHE_LOCK:
+        _ENV_CACHE.clear()
 
 
 def which_for_window(window, tools, path=None):
@@ -213,6 +256,16 @@ def _truncate(text):
     return data[:limit].decode("utf-8", "replace") + "\n\n<truncated at {} bytes>\n".format(limit)
 
 
+def _sublime_linter_status():
+    try:
+        from SublimeLinter.lint import linter as sl_linter
+    except Exception:
+        return "unavailable"
+    patched = getattr(sl_linter.Linter, "_project_environment_patched", False)
+    enabled = _sublime_linter_integration_enabled()
+    return "enabled, patched" if enabled and patched else "enabled, not patched" if enabled else "disabled"
+
+
 def format_report(resolved, include_env=False):
     lines = []
     lines.append("Project Environment")
@@ -222,6 +275,10 @@ def format_report(resolved, include_env=False):
     lines.append("-------")
     for key in ("windowId", "startPath", "folder", "envrcDir", "direnv", "direnvReturncode"):
         lines.append("{}: {}".format(key, resolved.get(key)))
+    lines.append("")
+    lines.append("Integrations")
+    lines.append("------------")
+    lines.append("SublimeLinter: {}".format(_sublime_linter_status()))
     if resolved.get("error"):
         lines.append("error: " + resolved["error"])
     if resolved.get("direnvStderr"):
@@ -264,6 +321,124 @@ def _show_panel(window, text):
     panel.run_command("append", {"characters": text})
     panel.set_read_only(True)
     window.run_command("show_panel", {"panel": "output." + PANEL})
+
+
+def _sublime_linter_integration_enabled():
+    return bool(settings().get("sublime_linter_integration", True))
+
+
+def _project_environment_for_linter_instance(linter):
+    try:
+        return resolve_for_view_cached(linter.view, include_env=True, interesting_vars=[])
+    except Exception:
+        print("{}: failed to resolve SublimeLinter environment:\n{}".format(PACKAGE, traceback.format_exc()))
+        return None
+
+
+def _patch_sublime_linter():
+    if not _sublime_linter_integration_enabled():
+        return True
+
+    try:
+        from SublimeLinter.lint import linter as sl_linter
+    except Exception:
+        return False
+
+    linter_class = sl_linter.Linter
+    if getattr(linter_class, "_project_environment_patched", False):
+        return True
+
+    original_which = linter_class.which
+    original_get_environment = linter_class.get_environment
+
+    def project_environment_which(self, cmd):
+        resolved = _project_environment_for_linter_instance(self)
+        if resolved and resolved.get("env"):
+            found = shutil.which(str(cmd), path=resolved["env"].get("PATH", ""))
+            if found:
+                try:
+                    self.logger.info("{}: resolved '{}' to '{}'".format(PACKAGE, cmd, found))
+                except Exception:
+                    pass
+                return found
+        return original_which(self, cmd)
+
+    def project_environment_get_environment(self, settings_arg=None):
+        resolved = _project_environment_for_linter_instance(self)
+        if resolved and resolved.get("env"):
+            utf8_env = getattr(sl_linter, "UTF8_ENV_VARS", {})
+            return ChainMap({}, self.settings.get("env", {}), self.env, utf8_env, resolved["env"])
+        return original_get_environment(self, settings_arg)
+
+    linter_class._project_environment_original_which = original_which
+    linter_class._project_environment_original_get_environment = original_get_environment
+    linter_class.which = project_environment_which
+    linter_class.get_environment = project_environment_get_environment
+    linter_class._project_environment_patched = True
+    print("{}: SublimeLinter integration enabled".format(PACKAGE))
+    return True
+
+
+def _unpatch_sublime_linter():
+    try:
+        from SublimeLinter.lint import linter as sl_linter
+    except Exception:
+        return
+
+    linter_class = sl_linter.Linter
+    if not getattr(linter_class, "_project_environment_patched", False):
+        return
+
+    original_which = getattr(linter_class, "_project_environment_original_which", None)
+    original_get_environment = getattr(linter_class, "_project_environment_original_get_environment", None)
+    if original_which:
+        linter_class.which = original_which
+    if original_get_environment:
+        linter_class.get_environment = original_get_environment
+    for attr in (
+        "_project_environment_original_which",
+        "_project_environment_original_get_environment",
+        "_project_environment_patched",
+    ):
+        try:
+            delattr(linter_class, attr)
+        except AttributeError:
+            pass
+    print("{}: SublimeLinter integration disabled".format(PACKAGE))
+
+
+def _schedule_sublime_linter_patch(attempt=0):
+    def run():
+        if _patch_sublime_linter():
+            return
+        if attempt < int(settings().get("sublime_linter_patch_attempts", 30)):
+            _schedule_sublime_linter_patch(attempt + 1)
+        else:
+            print("{}: SublimeLinter integration unavailable after retries".format(PACKAGE))
+
+    sublime.set_timeout_async(run, 1000 if attempt else 0)
+
+
+def _on_settings_changed():
+    clear_cache()
+    if _sublime_linter_integration_enabled():
+        _schedule_sublime_linter_patch()
+    else:
+        _unpatch_sublime_linter()
+
+
+def plugin_loaded():
+    settings().add_on_change(PACKAGE, _on_settings_changed)
+    _schedule_sublime_linter_patch()
+
+
+def plugin_unloaded():
+    try:
+        settings().clear_on_change(PACKAGE)
+    except Exception:
+        pass
+    _unpatch_sublime_linter()
+    clear_cache()
 
 
 class ProjectEnvironmentShowCommand(sublime_plugin.WindowCommand):
