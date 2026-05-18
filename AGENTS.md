@@ -4,39 +4,27 @@ Guidance for coding agents working on this Sublime Text package.
 
 ## Project layout
 
-- Source package: `sublime-package/Project Environment/`
-- Main plugin: `sublime-package/Project Environment/project_environment.py`
-- Default settings: `sublime-package/Project Environment/Project Environment.sublime-settings`
-- Command palette entries: `sublime-package/Project Environment/Default.sublime-commands`
-- Developer install script: `scripts/install-dev.sh`
+- Source package: this directory
+- Main plugin: `project_environment.py`
+- Default settings: `Project Environment.sublime-settings`
+- Command palette entries: `Default.sublime-commands`
 
 ## Development workflow
 
-1. Edit files in this repository, not directly in Sublime's Packages directory.
+1. Edit files in this repository.
 2. Validate Python syntax:
 
    ```bash
-   python3 -m py_compile 'sublime-package/Project Environment/project_environment.py'
+   python3 -m py_compile 'project_environment.py'
    ```
 
-3. Install the package into Sublime Text:
-
-   ```bash
-   ./scripts/install-dev.sh
-   ```
-
-4. Restart Sublime Text when changing plugin load-time behavior. Sublime does not always reliably hot-reload already-loaded package modules.
+3. Restart Sublime Text when changing plugin load-time behavior. Sublime does not always reliably hot-reload already-loaded package modules.
 
 ## Sublime troubleshooting tools
 
 Prefer checking behavior inside the running Sublime Text process, not just from the terminal.
 
 - Use **Sublime Agent Bridge** when available to inspect running windows, views, output panels, and command behavior.
-- Use **Env Doctor** from inside Sublime to compare:
-  - Sublime's process `PATH`
-  - the deterministic bootstrap `PATH`
-  - `direnv export json` results
-  - the active window/view/folder context
 - Use Project Environment command palette commands:
   - `Project Environment: Show Effective Environment`
   - `Project Environment: Show Tool Paths`
