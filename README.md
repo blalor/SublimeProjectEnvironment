@@ -15,7 +15,7 @@ For a window/view/file, Project Environment:
 5. applies the resolved environment to Sublime Text's process-wide `os.environ`,
 6. returns the resolved environment and deterministic tool paths for diagnostics and package integrations.
 
-Because Sublime has one process-wide environment, the active view/project wins. Build systems, LSP servers, linters, Git integration, and other subprocess-spawning packages then inherit the active project environment through normal Sublime behavior.
+Because Sublime has one process-wide environment per plugin host, the active view/project wins within that host. Build systems, LSP servers, linters, Git integration, and other subprocess-spawning packages then inherit the active project environment through normal Sublime behavior when they run in the same host.
 
 It does not use or depend on any existing Sublime direnv package.
 
@@ -64,6 +64,14 @@ Useful functions:
 Project Environment does not patch SublimeLinter, LSP, build systems, or other packages individually. Instead, it updates Sublime Text's global process environment when the active view changes. Packages that launch subprocesses through normal Sublime/Python mechanisms inherit that environment.
 
 When the active view has no `.envrc`, the previous Project Environment changes are rolled back.
+
+### Plugin host scope
+
+Sublime Text can run packages in separate Python plugin hosts, notably Python 3.3 and Python 3.8. Each host is a separate OS process with its own `os.environ`. Environment changes made by Project Environment are therefore process-local.
+
+Project Environment currently declares Python 3.8 via `.python-version`, so it updates the Python 3.8 plugin host environment. This covers packages that run in that host, such as modern build execution (`Default.exec`), LSP, SublimeLinter, and many newer packages. It does not update the Python 3.3 plugin host or Sublime's core application process.
+
+A future cross-host implementation would need a small companion loaded in the Python 3.3 host, likely synchronized through a cache/state file, to mirror the active applied environment there.
 
 ## Current scope
 
