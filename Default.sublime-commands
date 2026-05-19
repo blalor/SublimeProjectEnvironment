@@ -6,5 +6,13 @@
     {
         "caption": "Project Environment: Show Tool Paths",
         "command": "project_environment_show_tools"
+    },
+    {
+        "caption": "Project Environment: Reload",
+        "command": "project_environment_reload"
+    },
+    {
+        "caption": "Project Environment: Unload",
+        "command": "project_environment_unload"
     }
 ]

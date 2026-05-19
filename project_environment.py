@@ -5,7 +5,7 @@ import subprocess
 import threading
 import traceback
 import time
-from collections import ChainMap, OrderedDict
+from collections import OrderedDict
 
 import sublime
 import sublime_plugin
@@ -13,11 +13,19 @@ import sublime_plugin
 
 PACKAGE = "Project Environment"
 SETTINGS = "Project Environment.sublime-settings"
-PANEL = "project_environment"
 
 _LOCK = threading.RLock()
 _ENV_CACHE_LOCK = threading.RLock()
 _ENV_CACHE = {}
+
+_GLOBAL_ENV_LOCK = threading.RLock()
+_APPLIED_CONTEXT = None
+_APPLIED_ENV = {}
+_PREVIOUS_ENV = {}
+_LAST_APPLY_TOKEN = None
+
+
+_MISSING = object()
 
 
 def settings():
@@ -209,12 +217,7 @@ def _cache_key_for_view(view):
 
 
 def resolve_for_view_cached(view, tools=None, include_env=True, interesting_vars=None):
-    """Resolve a view environment with a short TTL cache.
-
-    SublimeLinter can ask for executable paths and environment multiple times
-    during a single lint pass.  A short cache avoids re-running direnv for each
-    method while still picking up environment changes quickly.
-    """
+    """Resolve a view environment with a short TTL cache."""
     ttl = float(settings().get("cache_seconds", 5))
     interesting_key = None if interesting_vars is None else tuple(interesting_vars)
     key = (_cache_key_for_view(view), tuple(tools or ()), bool(include_env), interesting_key)
@@ -240,6 +243,103 @@ def which_for_window(window, tools, path=None):
     return resolved.get("tools", {})
 
 
+def _skip_global_vars():
+    return set(settings().get("global_environment_skip_vars", []) or [])
+
+
+def _rollback_global_environment_locked():
+    global _APPLIED_CONTEXT, _APPLIED_ENV, _PREVIOUS_ENV
+    for key, previous in _PREVIOUS_ENV.items():
+        if previous is _MISSING:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = previous
+    _APPLIED_CONTEXT = None
+    _APPLIED_ENV = {}
+    _PREVIOUS_ENV = {}
+
+
+def _environment_for_global_application(resolved):
+    if not resolved.get("envrcDir"):
+        return None
+    if resolved.get("error"):
+        return None
+    if resolved.get("direnvReturncode") not in (None, 0):
+        return None
+    env = resolved.get("env") or {}
+    skip = _skip_global_vars()
+    return {key: str(value) for key, value in env.items() if key not in skip and value is not None}
+
+
+def apply_global_environment(resolved):
+    """Make the resolved project environment Sublime's process environment.
+
+    Sublime has a single process-wide environment. The active view wins; when a
+    view with no .envrc is activated, the previous project environment is rolled
+    back.
+    """
+    global _APPLIED_CONTEXT, _APPLIED_ENV, _PREVIOUS_ENV
+    with _GLOBAL_ENV_LOCK:
+        previous_context = _APPLIED_CONTEXT
+        env = _environment_for_global_application(resolved)
+        _rollback_global_environment_locked()
+
+        if not env:
+            if previous_context:
+                sublime.status_message("Project Environment: unloaded {}".format(previous_context.get("envrcDir")))
+            return False
+
+        previous = {}
+        for key, value in env.items():
+            previous[key] = os.environ[key] if key in os.environ else _MISSING
+            if os.environ.get(key) != value:
+                os.environ[key] = value
+
+        _APPLIED_CONTEXT = OrderedDict((key, resolved.get(key)) for key in ("windowId", "startPath", "folder", "envrcDir"))
+        _APPLIED_ENV = env
+        _PREVIOUS_ENV = previous
+
+        envrc = resolved.get("envrcDir")
+        if not previous_context or previous_context.get("envrcDir") != envrc:
+            sublime.status_message("Project Environment: loaded {}".format(envrc))
+        return True
+
+
+def apply_global_environment_for_view(view):
+    global _LAST_APPLY_TOKEN
+    token = time.monotonic()
+    _LAST_APPLY_TOKEN = token
+
+    try:
+        resolved = resolve_for_view(view, include_env=True)
+    except Exception:
+        print("{}: failed to resolve global environment:\n{}".format(PACKAGE, traceback.format_exc()))
+        return
+
+    def apply_if_current():
+        if _LAST_APPLY_TOKEN == token:
+            apply_global_environment(resolved)
+
+    sublime.set_timeout(apply_if_current, 0)
+
+
+def unload_global_environment():
+    with _GLOBAL_ENV_LOCK:
+        previous_context = _APPLIED_CONTEXT
+        _rollback_global_environment_locked()
+    if previous_context:
+        sublime.status_message("Project Environment: unloaded {}".format(previous_context.get("envrcDir")))
+
+
+def applied_global_environment_snapshot():
+    with _GLOBAL_ENV_LOCK:
+        return {
+            "context": dict(_APPLIED_CONTEXT or {}),
+            "env": dict(_APPLIED_ENV),
+            "previousKeys": sorted(_PREVIOUS_ENV.keys()),
+        }
+
+
 def _format_path(value):
     if isinstance(value, list):
         parts = value
@@ -256,180 +356,112 @@ def _truncate(text):
     return data[:limit].decode("utf-8", "replace") + "\n\n<truncated at {} bytes>\n".format(limit)
 
 
-def _sublime_linter_status():
-    try:
-        from SublimeLinter.lint import linter as sl_linter
-    except Exception:
-        return "unavailable"
-    patched = getattr(sl_linter.Linter, "_project_environment_patched", False)
-    enabled = _sublime_linter_integration_enabled()
-    return "enabled, patched" if enabled and patched else "enabled, not patched" if enabled else "disabled"
+def _append_key_values(lines, values):
+    for key in sorted(values):
+        if key == "PATH":
+            lines.append("PATH=")
+            lines.append(_format_path(values[key]))
+        else:
+            lines.append("{}={}".format(key, values[key]))
 
 
-def format_report(resolved, include_env=False):
+def format_report(resolved, include_env=False, include_applied=False):
     lines = []
     lines.append("Project Environment")
-    lines.append("===================")
+    lines.append("=" * 19)
     lines.append("")
     lines.append("Context")
     lines.append("-------")
     for key in ("windowId", "startPath", "folder", "envrcDir", "direnv", "direnvReturncode"):
         lines.append("{}: {}".format(key, resolved.get(key)))
-    lines.append("")
-    lines.append("Integrations")
-    lines.append("------------")
-    lines.append("SublimeLinter: {}".format(_sublime_linter_status()))
+
     if resolved.get("error"):
-        lines.append("error: " + resolved["error"])
+        lines.append("")
+        lines.append("Error")
+        lines.append("-----")
+        lines.append(resolved["error"])
+
     if resolved.get("direnvStderr"):
         lines.append("")
         lines.append("direnv stderr")
         lines.append("-------------")
         lines.append(resolved["direnvStderr"].rstrip())
+
     if resolved.get("tools"):
         lines.append("")
         lines.append("Tools")
         lines.append("-----")
         for tool, path in resolved["tools"].items():
             lines.append("{}: {}".format(tool, path or "<not found>"))
+
     lines.append("")
-    lines.append("PATH")
-    lines.append("----")
+    lines.append("Resolved PATH")
+    lines.append("-------------")
     lines.append(_format_path(resolved.get("path", [])))
+
     if resolved.get("vars"):
         lines.append("")
         lines.append("Interesting variables")
         lines.append("---------------------")
-        for key, value in resolved["vars"].items():
-            if key == "PATH":
-                continue
-            lines.append("{}={}".format(key, value))
+        _append_key_values(lines, resolved["vars"])
+
     if include_env and resolved.get("env"):
         lines.append("")
-        lines.append("Full environment")
-        lines.append("----------------")
-        for key in sorted(resolved["env"]):
-            lines.append("{}={}".format(key, resolved["env"][key]))
+        lines.append("Full resolved environment")
+        lines.append("-------------------------")
+        _append_key_values(lines, resolved["env"])
+
+    if include_applied:
+        snapshot = applied_global_environment_snapshot()
+        lines.append("")
+        lines.append("Applied global environment")
+        lines.append("--------------------------")
+        context = snapshot.get("context") or {}
+        if context:
+            for key in ("windowId", "startPath", "folder", "envrcDir"):
+                lines.append("{}: {}".format(key, context.get(key)))
+        else:
+            lines.append("<none>")
+        env = snapshot.get("env") or {}
+        if env:
+            lines.append("")
+            _append_key_values(lines, env)
+        previous_keys = snapshot.get("previousKeys") or []
+        if previous_keys:
+            lines.append("")
+            lines.append("Rollback keys")
+            lines.append("-------------")
+            for key in previous_keys:
+                lines.append(key)
+
     return _truncate("\n".join(lines) + "\n")
 
 
-def _show_panel(window, text):
-    panel = window.create_output_panel(PANEL)
-    panel.set_read_only(False)
-    panel.run_command("select_all")
-    panel.run_command("right_delete")
-    panel.run_command("append", {"characters": text})
-    panel.set_read_only(True)
-    window.run_command("show_panel", {"panel": "output." + PANEL})
-
-
-def _sublime_linter_integration_enabled():
-    return bool(settings().get("sublime_linter_integration", True))
-
-
-def _project_environment_for_linter_instance(linter):
-    try:
-        return resolve_for_view_cached(linter.view, include_env=True, interesting_vars=[])
-    except Exception:
-        print("{}: failed to resolve SublimeLinter environment:\n{}".format(PACKAGE, traceback.format_exc()))
-        return None
-
-
-def _patch_sublime_linter():
-    if not _sublime_linter_integration_enabled():
-        return True
-
-    try:
-        from SublimeLinter.lint import linter as sl_linter
-    except Exception:
-        return False
-
-    linter_class = sl_linter.Linter
-    if getattr(linter_class, "_project_environment_patched", False):
-        return True
-
-    original_which = linter_class.which
-    original_get_environment = linter_class.get_environment
-
-    def project_environment_which(self, cmd):
-        resolved = _project_environment_for_linter_instance(self)
-        if resolved and resolved.get("env"):
-            found = shutil.which(str(cmd), path=resolved["env"].get("PATH", ""))
-            if found:
-                try:
-                    self.logger.info("{}: resolved '{}' to '{}'".format(PACKAGE, cmd, found))
-                except Exception:
-                    pass
-                return found
-        return original_which(self, cmd)
-
-    def project_environment_get_environment(self, settings_arg=None):
-        resolved = _project_environment_for_linter_instance(self)
-        if resolved and resolved.get("env"):
-            utf8_env = getattr(sl_linter, "UTF8_ENV_VARS", {})
-            return ChainMap({}, self.settings.get("env", {}), self.env, utf8_env, resolved["env"])
-        return original_get_environment(self, settings_arg)
-
-    linter_class._project_environment_original_which = original_which
-    linter_class._project_environment_original_get_environment = original_get_environment
-    linter_class.which = project_environment_which
-    linter_class.get_environment = project_environment_get_environment
-    linter_class._project_environment_patched = True
-    print("{}: SublimeLinter integration enabled".format(PACKAGE))
-    return True
-
-
-def _unpatch_sublime_linter():
-    try:
-        from SublimeLinter.lint import linter as sl_linter
-    except Exception:
-        return
-
-    linter_class = sl_linter.Linter
-    if not getattr(linter_class, "_project_environment_patched", False):
-        return
-
-    original_which = getattr(linter_class, "_project_environment_original_which", None)
-    original_get_environment = getattr(linter_class, "_project_environment_original_get_environment", None)
-    if original_which:
-        linter_class.which = original_which
-    if original_get_environment:
-        linter_class.get_environment = original_get_environment
-    for attr in (
-        "_project_environment_original_which",
-        "_project_environment_original_get_environment",
-        "_project_environment_patched",
-    ):
-        try:
-            delattr(linter_class, attr)
-        except AttributeError:
-            pass
-    print("{}: SublimeLinter integration disabled".format(PACKAGE))
-
-
-def _schedule_sublime_linter_patch(attempt=0):
-    def run():
-        if _patch_sublime_linter():
-            return
-        if attempt < int(settings().get("sublime_linter_patch_attempts", 30)):
-            _schedule_sublime_linter_patch(attempt + 1)
-        else:
-            print("{}: SublimeLinter integration unavailable after retries".format(PACKAGE))
-
-    sublime.set_timeout_async(run, 1000 if attempt else 0)
+def _show_report(window, title, text):
+    window = window or sublime.active_window()
+    view = window.new_file()
+    view.set_name(title)
+    view.set_scratch(True)
+    view.assign_syntax("Packages/Text/Plain text.tmLanguage")
+    view.run_command("append", {"characters": text})
+    view.set_read_only(True)
+    window.focus_view(view)
 
 
 def _on_settings_changed():
     clear_cache()
-    if _sublime_linter_integration_enabled():
-        _schedule_sublime_linter_patch()
-    else:
-        _unpatch_sublime_linter()
+    window = sublime.active_window()
+    view = window.active_view() if window else None
+    if view:
+        sublime.set_timeout_async(lambda: apply_global_environment_for_view(view), 0)
 
 
 def plugin_loaded():
     settings().add_on_change(PACKAGE, _on_settings_changed)
-    _schedule_sublime_linter_patch()
+    window = sublime.active_window()
+    view = window.active_view() if window else None
+    if view:
+        sublime.set_timeout_async(lambda: apply_global_environment_for_view(view), 0)
 
 
 def plugin_unloaded():
@@ -437,8 +469,23 @@ def plugin_unloaded():
         settings().clear_on_change(PACKAGE)
     except Exception:
         pass
-    _unpatch_sublime_linter()
+    unload_global_environment()
     clear_cache()
+
+
+class ProjectEnvironmentEventListener(sublime_plugin.ViewEventListener):
+    def _apply(self):
+        sublime.set_timeout_async(lambda: apply_global_environment_for_view(self.view), 0)
+
+    def on_load(self):
+        self._apply()
+
+    def on_activated(self):
+        self._apply()
+
+    def on_post_save(self):
+        clear_cache()
+        self._apply()
 
 
 class ProjectEnvironmentShowCommand(sublime_plugin.WindowCommand):
@@ -447,12 +494,12 @@ class ProjectEnvironmentShowCommand(sublime_plugin.WindowCommand):
             resolved = resolve_for_window(
                 self.window,
                 tools=settings().get("default_tools", []) or [],
-                include_env=False,
+                include_env=True,
             )
-            text = format_report(resolved)
+            text = format_report(resolved, include_env=True, include_applied=True)
         except Exception:
             text = "Project Environment failed:\n\n" + traceback.format_exc()
-        _show_panel(self.window, text)
+        _show_report(self.window, "Project Environment", text)
 
 
 class ProjectEnvironmentShowToolsCommand(sublime_plugin.WindowCommand):
@@ -460,7 +507,20 @@ class ProjectEnvironmentShowToolsCommand(sublime_plugin.WindowCommand):
         try:
             tools = settings().get("default_tools", []) or []
             resolved = resolve_for_window(self.window, tools=tools, include_env=False, interesting_vars=[])
-            text = format_report(resolved)
+            text = format_report(resolved, include_env=False, include_applied=True)
         except Exception:
             text = "Project Environment tool discovery failed:\n\n" + traceback.format_exc()
-        _show_panel(self.window, text)
+        _show_report(self.window, "Project Environment Tool Paths", text)
+
+
+class ProjectEnvironmentReloadCommand(sublime_plugin.WindowCommand):
+    def run(self):
+        clear_cache()
+        view = self.window.active_view()
+        if view:
+            sublime.set_timeout_async(lambda: apply_global_environment_for_view(view), 0)
+
+
+class ProjectEnvironmentUnloadCommand(sublime_plugin.WindowCommand):
+    def run(self):
+        unload_global_environment()

@@ -12,7 +12,10 @@ For a window/view/file, Project Environment:
 2. starts from a clean allowlisted base environment instead of inheriting Sublime's possibly-contaminated `PATH`,
 3. discovers `direnv` from configured bootstrap paths,
 4. runs `direnv export json` in the nearest `.envrc` directory,
-5. returns the resolved environment and deterministic tool paths.
+5. applies the resolved environment to Sublime Text's process-wide `os.environ`,
+6. returns the resolved environment and deterministic tool paths for diagnostics and package integrations.
+
+Because Sublime has one process-wide environment, the active view/project wins. Build systems, LSP servers, linters, Git integration, and other subprocess-spawning packages then inherit the active project environment through normal Sublime behavior.
 
 It does not use or depend on any existing Sublime direnv package.
 
@@ -31,7 +34,12 @@ Command Palette:
 - `Project Environment: Show Effective Environment`
 - `Project Environment: Show Tool Paths`
 
-Both commands write to the `output.project_environment` panel and do not modify open projects/windows.
+The report commands open scratch views with formatted diagnostics.
+
+Additional commands:
+
+- `Project Environment: Reload`
+- `Project Environment: Unload`
 
 ## Public Python API
 
@@ -51,15 +59,15 @@ Useful functions:
 - `resolve_for_view(view, tools=None, include_env=True, interesting_vars=None)`
 - `which_for_window(window, tools, path=None)`
 
-## SublimeLinter integration
+## Global environment integration
 
-By default, Project Environment patches SublimeLinter at the subprocess launch boundary. Linters resolve executables with the per-view Project Environment `PATH` and run with the resolved per-view environment. This is what makes tools supplied by `direnv`/Flox, such as `actionlint`, `yamllint`, and `shellcheck`, available even when Sublime Text was launched from the Dock.
+Project Environment does not patch SublimeLinter, LSP, build systems, or other packages individually. Instead, it updates Sublime Text's global process environment when the active view changes. Packages that launch subprocesses through normal Sublime/Python mechanisms inherit that environment.
 
-Set `"sublime_linter_integration": false` to disable this adapter.
+When the active view has no `.envrc`, the previous Project Environment changes are rolled back.
 
 ## Current scope
 
-This version provides deterministic resolution and inspection plus a SublimeLinter adapter. LSP/build-system adapters can be layered on top of this package without coupling that functionality to agent tooling.
+This version provides deterministic resolution, inspection, and process-wide environment application for the active view/project.
 
 ## Future considerations
 

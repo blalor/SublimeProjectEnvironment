@@ -67,11 +67,13 @@
     // Short cache for repeated environment lookups during a single lint pass.
     "cache_seconds": 5,
 
-    // Patch SublimeLinter's subprocess launch boundary so linters use the
-    // Project Environment for the relevant view instead of Sublime's launch env.
-    "sublime_linter_integration": true,
-    "sublime_linter_patch_attempts": 30,
+    // Variables omitted when applying the resolved environment to Sublime's
+    // process-wide environment.
+    "global_environment_skip_vars": [
+        "DIRENV_DIFF",
+        "DIRENV_WATCHES"
+    ],
 
-    // Maximum panel body size for rendered environment output.
+    // Maximum report body size.
     "max_output_bytes": 524288
 }
