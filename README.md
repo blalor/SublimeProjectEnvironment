@@ -69,9 +69,11 @@ When the active view has no `.envrc`, the previous Project Environment changes a
 
 Sublime Text can run packages in separate Python plugin hosts, notably Python 3.3 and Python 3.8. Each host is a separate OS process with its own `os.environ`. Environment changes made by Project Environment are therefore process-local.
 
-Project Environment currently declares Python 3.8 via `.python-version`, so it updates the Python 3.8 plugin host environment. This covers packages that run in that host, such as modern build execution (`Default.exec`), LSP, SublimeLinter, and many newer packages. It does not update the Python 3.3 plugin host or Sublime's core application process.
+Project Environment declares Python 3.8 via `.python-version`, so it updates the Python 3.8 plugin host environment. This covers packages that run in that host, such as modern build execution (`Default.exec`), LSP, SublimeLinter, and many newer packages. It does not directly update the Python 3.3 plugin host or Sublime's core application process.
 
-A future cross-host implementation would need a small companion loaded in the Python 3.3 host, likely synchronized through a cache/state file, to mirror the active applied environment there.
+To reach the legacy Python 3.3 host, Project Environment bootstraps a small companion package, **Project Environment Host py33** (named for the plugin host it targets). On load it materializes that package to disk (via `bootstrap.py`, from the bundled `payload/`) with its own `.python-version` of `3.3`, so Sublime loads it in the legacy host. The companion is self-contained (it cannot import this module across the host boundary) and re-resolves the environment from the shared `Project Environment.sublime-settings`.
+
+The companion is tool-agnostic: it performs the **same** global `os.environ` application in the legacy host that the main package performs in the modern host. It patches nothing. Any legacy-host package that spawns subprocesses -- the bundled `Git` package being the common case -- then inherits the active project environment through normal Sublime behavior (for example so `git-crypt` and other Git filters/hooks find direnv/Flox-provided tools). The companion is auto-managed: it is created/updated on load and is not removed automatically when Project Environment is uninstalled.
 
 ## Current scope
 

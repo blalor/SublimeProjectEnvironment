@@ -457,6 +457,13 @@ def _on_settings_changed():
 
 
 def plugin_loaded():
+    try:
+        from . import bootstrap
+        # Defer off the plugin_loaded hook: load_binary_resource() can fail when
+        # called directly from it.
+        sublime.set_timeout_async(bootstrap.bootstrap, 0)
+    except Exception:
+        print("{}: host bootstrap failed:\n{}".format(PACKAGE, traceback.format_exc()))
     settings().add_on_change(PACKAGE, _on_settings_changed)
     window = sublime.active_window()
     view = window.active_view() if window else None

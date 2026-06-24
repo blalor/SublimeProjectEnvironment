@@ -5,9 +5,15 @@ Guidance for coding agents working on this Sublime Text package.
 ## Project layout
 
 - Source package: this directory
-- Main plugin: `project_environment.py`
+- Main plugin: `project_environment.py` (Python 3.8 host)
 - Default settings: `Project Environment.sublime-settings`
 - Command palette entries: `Default.sublime-commands`
+- Legacy-host bootstrap: `bootstrap.py` materializes the `Project Environment Host py33` companion package (Python 3.3 host) from `payload/`
+- Legacy-host source: `payload/project_environment_host.py` (edit here, not the materialized copy in `Packages/Project Environment Host py33/`)
+
+The materialized `Packages/Project Environment Host py33/` directory is generated and must not be hand-edited; bump `BOOTSTRAP_VERSION` in `bootstrap.py` to force a rewrite. Files under `payload/` are not loaded as plugins (they live in a subdirectory).
+
+The companion package name encodes the host Python version as `py33`, not `3.3`, on purpose: Sublime loads a plugin as the module `<package name>.<file>`, and a `.` in the package name is parsed as a Python package separator (so `Project Environment Host 3.3.project_environment_host` fails to import). Package names may contain spaces but must not contain a dot.
 
 ## Development workflow
 
