@@ -9,10 +9,8 @@ from the legacy host's; this companion fills that gap.
 
 It is tool-agnostic: it applies the resolved project environment to the legacy
 host's process `os.environ`, exactly as Project Environment does in the modern
-host, and patches nothing. Any legacy-host package that spawns subprocesses (the
-bundled `Git` package being the common case) then inherits that environment, so
-tools such as `git-crypt` and other Git filters/hooks find direnv/Flox-provided
-executables.
+host, and modifies nothing else. Any legacy-host package that spawns subprocesses
+then inherits that environment.
 
 It is created and updated automatically when Project Environment loads. Removing
 Project Environment leaves this directory in place; delete it manually if you no

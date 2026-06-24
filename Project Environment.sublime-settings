@@ -64,9 +64,6 @@
         "GOBIN"
     ],
 
-    // Short cache for repeated environment lookups during a single lint pass.
-    "cache_seconds": 5,
-
     // Variables omitted when applying the resolved environment to Sublime's
     // process-wide environment.
     "global_environment_skip_vars": [

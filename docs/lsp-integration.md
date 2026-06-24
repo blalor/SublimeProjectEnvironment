@@ -4,7 +4,7 @@ Project Environment should be the real Sublime Text solution for deterministic p
 
 ## Problem
 
-Sublime Text packages often launch subprocesses: language servers, linters, formatters, build tools, Git helpers, etc. Those subprocesses need the environment for the relevant project/window/view.
+Sublime Text packages often launch subprocesses: language servers, linters, formatters, build tools, and other helpers. Those subprocesses need the environment for the relevant project/window/view.
 
 For projects that use `direnv`/Flox, tools such as `shellcheck` and `uv` may only exist after evaluating the project's `.envrc`.
 
@@ -30,7 +30,7 @@ Project Environment now provides deterministic environment resolution and applie
 6. Apply the resolved environment globally for the active view/project.
 7. Roll back the previous applied environment when the active view has no `.envrc`.
 
-Because many Sublime packages launch subprocesses from `os.environ.copy()`, global application makes LSP servers, linters, build systems, Git integration, and other subprocess users inherit the active project environment without package-specific adapters.
+Because many Sublime packages launch subprocesses from `os.environ.copy()`, global application makes LSP servers, linters, build systems, and other subprocess users inherit the active project environment without package-specific adapters.
 
 ## Important limitations
 
@@ -54,10 +54,4 @@ Relevant LSP internals inspected:
 - `LSP.plugin.core.transports.TransportConfig.resolve_launch_config(command, env, variables)` builds the process launch env.
 - `LSP.plugin.core.transports._start_subprocess(...)` ultimately calls `subprocess.Popen(...)`.
 
-Project Environment does not patch LSP internals. If an LSP server was started before the correct environment was applied, restart that server.
-
-## Open questions
-
-- Should Project Environment cache `direnv export json` results beyond the short runtime TTL, and if so what invalidates the cache (`.envrc`, `.envrc.local`, parent `.envrc`, Flox files, direnv watches)?
-- How should secrets from `direnv`/envchain be handled in logs and reports?
-- Are additional `global_environment_skip_vars` defaults needed beyond noisy/internal direnv variables?
+Project Environment does not modify LSP internals. If an LSP server was started before the correct environment was applied, restart that server.
