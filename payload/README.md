@@ -1,11 +1,17 @@
 # Project Environment Host py33
 
-**Auto-managed — do not edit or install manually.**
+**Auto-managed. Do not edit or install manually.**
 
 This package is materialized onto disk by the **Project Environment** package
-and runs in Sublime Text's legacy (Python 3.3) plugin host. Project Environment
-itself runs in the modern (3.8+) host, whose process environment is separate
-from the legacy host's; this companion fills that gap.
+and runs in Sublime Text's legacy Python 3.3 plugin host when that host is
+enabled. Project Environment itself runs in the modern Python 3.8 or 3.14
+host, whose process environment is separate from the legacy host's; this
+companion fills that gap.
+
+Sublime Text 4213 disables the Python 3.3 host by default and runs packages
+marked for Python 3.3 in the modern host. The companion remains inactive when
+its runtime Python version is not 3.3, so it does not apply the environment a
+second time in the modern host.
 
 It is tool-agnostic: it applies the resolved project environment to the legacy
 host's process `os.environ`, exactly as Project Environment does in the modern

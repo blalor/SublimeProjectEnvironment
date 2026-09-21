@@ -29,7 +29,7 @@ TARGET_PACKAGE = "Project Environment Host py33"
 PYTHON_VERSION = "3.3\n"
 
 # Bump to force existing installs to be rewritten.
-BOOTSTRAP_VERSION = "7"
+BOOTSTRAP_VERSION = "8"
 MARKER = ".bootstrap-version"
 
 SHARED_DIR = "shared"

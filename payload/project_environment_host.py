@@ -15,7 +15,12 @@ from .shared.global_environment import apply_global_environment_for_view, unload
 from .shared.utils import PACKAGE, settings
 
 
+_IS_LEGACY_HOST = sys.version_info[:2] == (3, 3)
+
+
 def _on_settings_changed():
+    if not _IS_LEGACY_HOST:
+        return
     window = sublime.active_window()
     view = window.active_view() if window else None
     if view:
@@ -23,6 +28,13 @@ def _on_settings_changed():
 
 
 def plugin_loaded():
+    if not _IS_LEGACY_HOST:
+        print(
+            "{}: legacy companion disabled in plugin host Python {}".format(
+                PACKAGE, sys.version.split()[0]
+            )
+        )
+        return
     print("{}: loaded in plugin host Python {}".format(PACKAGE, sys.version.split()[0]))
     settings().add_on_change(PACKAGE, _on_settings_changed)
     window = sublime.active_window()
@@ -32,6 +44,8 @@ def plugin_loaded():
 
 
 def plugin_unloaded():
+    if not _IS_LEGACY_HOST:
+        return
     try:
         settings().clear_on_change(PACKAGE)
     except Exception:
@@ -41,6 +55,8 @@ def plugin_unloaded():
 
 class ProjectEnvironmentHostEventListener(sublime_plugin.ViewEventListener):
     def _apply(self):
+        if not _IS_LEGACY_HOST:
+            return
         sublime.set_timeout_async(lambda: apply_global_environment_for_view(self.view), 0)
 
     def on_load(self):
