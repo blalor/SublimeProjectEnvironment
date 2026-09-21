@@ -41,11 +41,13 @@ When the active view has no `.envrc`, the previous Project Environment changes a
 
 ### Plugin host scope
 
-Sublime Text can run packages in separate Python plugin hosts, notably Python 3.3 and Python 3.8. Each host is a separate OS process with its own `os.environ`. Environment changes made by Project Environment are therefore process-local.
+Sublime Text can run packages in separate Python plugin hosts. Build 4200 provides Python 3.3 and Python 3.8 hosts. Build 4213 replaces the Python 3.8 host with Python 3.14 and disables the Python 3.3 host by default. Each enabled host is a separate OS process with its own `os.environ`, so environment changes are process-local.
 
-Project Environment declares Python 3.8 via `.python-version`, so it updates the Python 3.8 plugin host environment. This covers packages that run in that host, such as modern build execution (`Default.exec`), LSP, SublimeLinter, and many newer packages. It does not update Sublime's core application process.
+Project Environment declares Python 3.8 via `.python-version`. Build 4213 treats that value as the backward-compatible selector for Python 3.14, while older builds continue to select Python 3.8. This covers packages that run in the modern host, such as modern build execution (`Default.exec`), LSP, SublimeLinter, and many newer packages. It does not update Sublime's core application process.
 
-To reach the legacy Python 3.3 host, Project Environment bootstraps a small companion package, **Project Environment Host py33** (named for the plugin host it targets). On load it materializes that package to disk (via `bootstrap.py`, from the bundled `payload/`) with its own `.python-version` of `3.3`, so Sublime loads it in the legacy host. The companion is self-contained (it cannot import this module across the host boundary) and re-resolves the environment from the shared `Project Environment.sublime-settings`.
+To reach the legacy Python 3.3 host when it is enabled, Project Environment bootstraps a small companion package, **Project Environment Host py33** (named for the plugin host it targets). On load it materializes that package to disk (via `bootstrap.py`, from the bundled `payload/`) with its own `.python-version` of `3.3`, so Sublime loads it in the legacy host. The companion is self-contained (it cannot import this module across the host boundary) and re-resolves the environment from the shared `Project Environment.sublime-settings`.
+
+When the Python 3.3 host is disabled, Sublime runs packages marked for Python 3.3 in the modern host. The companion detects the host's Python version and remains inactive there, preventing it from applying the environment a second time in the same process.
 
 The companion is tool-agnostic: it reuses the same `shared/` environment-resolution and global-application modules to perform the **same** global `os.environ` application in the legacy host that the main package performs in the modern host. It modifies nothing else. Any legacy-host package that spawns subprocesses inherits the active project environment through normal Sublime behavior. The companion is auto-managed: it is created/updated on load and is not removed automatically when Project Environment is uninstalled.
 
